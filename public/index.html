@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Small-Cap Low-Float Screener</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: #0a0f1a; padding: 1rem; }
+    .container { max-width: 1600px; margin: 0 auto; }
+    .header { background: linear-gradient(135deg, #0f172a, #0b1120); border-radius: 1rem; padding: 1.5rem; margin-bottom: 1rem; border: 1px solid #2d3748; }
+    h1 { color: #eab308; font-size: 1.5rem; }
+    p { color: #8ca3c0; margin-top: 0.3rem; }
+    .live-badge { background: #22c55e20; border: 1px solid #22c55e; color: #22c55e; padding: 0.3rem 0.8rem; border-radius: 2rem; font-size: 0.7rem; display: inline-block; margin-top: 0.5rem; }
+    .filters { background: #0f172a; padding: 1rem; border-radius: 1rem; margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
+    .filter-group { display: flex; flex-direction: column; gap: 0.25rem; }
+    .filter-group label { color: #7e8ba3; font-size: 0.7rem; text-transform: uppercase; }
+    .filter-group input, .filter-group select { background: #1e293b; border: 1px solid #334155; padding: 0.5rem; border-radius: 0.5rem; color: white; width: 110px; }
+    button { background: #eab308; border: none; padding: 0.5rem 1.2rem; border-radius: 0.5rem; cursor: pointer; font-weight: bold; color: #0a0f1a; }
+    .stats { background: #1e293b; padding: 0.7rem 1rem; border-radius: 0.7rem; margin-bottom: 1rem; color: #cbd5e6; display: flex; justify-content: space-between; flex-wrap: wrap; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+    .card { background: #111827; border-radius: 1rem; border: 1px solid #2d3748; padding: 1rem; cursor: pointer; transition: transform 0.2s; }
+    .card:hover { transform: translateY(-3px); border-color: #eab308; }
+    .card.low-float { border-left: 4px solid #eab308; background: linear-gradient(90deg, #1a1f2e 0%, #111827 100%); }
+    .card.high-compression { border-right: 4px solid #22c55e; }
+    .ticker { font-size: 1.2rem; font-weight: bold; color: white; }
+    .price { font-size: 1.1rem; color: #facc15; font-weight: bold; }
+    .positive { color: #22c55e; }
+    .negative { color: #ef4444; }
+    .details { margin-top: 0.75rem; display: flex; justify-content: space-between; font-size: 0.7rem; color: #8ca3c0; }
+    .badge { background: #1e293b; padding: 0.2rem 0.5rem; border-radius: 1rem; }
+    .low-float-badge { background: #eab30820; color: #eab308; border: 1px solid #eab308; }
+    .compression-badge { background: #22c55e20; color: #22c55e; border: 1px solid #22c55e; }
+    .loading { text-align: center; padding: 3rem; color: #6c86a3; grid-column: 1 / -1; }
+    @media (max-width: 700px) { .filters { flex-direction: column; } .filter-group input { width: 100%; } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>⚡ Dynamic Small-Cap Low-Float Screener</h1>
+    <p>Automatically scans market • 1-hour compression detection • Low float = explosive potential</p>
+    <div class="live-badge">● DYNAMIC SCANNER • NO WATCHLIST</div>
+  </div>
+  
+  <div class="filters">
+    <div class="filter-group"><label>💰 Min Price</label><input type="number" id="minPrice" value="0.5" step="0.5"></div>
+    <div class="filter-group"><label>💰 Max Price</label><input type="number" id="maxPrice" value="30" step="2"></div>
+    <div class="filter-group"><label>📊 Min Volume</label><input type="number" id="minVolume" value="100000" step="50000"></div>
+    <div class="filter-group"><label>🔥 Min Compression</label><select id="minCompression"><option value="0">Any</option><option value="0.5">> 50%</option><option value="0.7">> 70% (High)</option></select></div>
+    <div class="filter-group"><label>🔍 Search</label><input type="text" id="search" placeholder="Ticker"></div>
+    <button id="resetBtn">⟳ Reset Filters</button>
+  </div>
+  
+  <div class="stats">
+    <span id="count">📋 Scanning market dynamically...</span>
+    <span>🔥 Compression = coil/pennant pattern • Low float = explosive</span>
+  </div>
+  
+  <div id="grid" class="grid"><div class="loading">🔄 Scanning for small-cap stocks...<br>This may take 30-60 seconds</div></div>
+</div>
+
+<script>
+  let stocksData = [];
+  
+  async function loadStocks() {
+    try {
+      document.getElementById('grid').innerHTML = '<div class="loading">🔄 Scanning market for small-cap stocks...<br>Fetching 1-hour data for each ticker...</div>';
+      const response = await fetch('/api/stocks');
+      const data = await response.json();
+      
+      if (data.error) {
+        document.getElementById('grid').innerHTML = `<div class="loading">⚠️ ${data.error}<br>${data.details || ''}</div>`;
+        return;
+      }
+      
+      stocksData = data;
+      const lowFloatCount = stocksData.filter(s => s.lowFloat).length;
+      const highCompressionCount = stocksData.filter(s => s.compressionScore > 0.7).length;
+      document.getElementById('count').innerHTML = `📋 ${stocksData.length} small-cap stocks • 🔥 ${lowFloatCount} low float • 📐 ${highCompressionCount} high compression`;
+      applyFilters();
+    } catch(e) {
+      document.getElementById('grid').innerHTML = '<div class="loading">❌ Error connecting to server. Make sure backend is running.</div>';
+    }
+  }
+  
+  function applyFilters() {
+    let minPrice = parseFloat(document.getElementById('minPrice').value) || 0;
+    let maxPrice = parseFloat(document.getElementById('maxPrice').value) || 1000;
+    let minVolume = parseInt(document.getElementById('minVolume').value) || 0;
+    let minCompression = parseFloat(document.getElementById('minCompression').value) || 0;
+    let searchTerm = document.getElementById('search').value.toLowerCase();
+    
+    let filtered = stocksData.filter(s => {
+      if (s.price < minPrice || s.price > maxPrice) return false;
+      if (s.volume < minVolume) return false;
+      if (s.compressionScore < minCompression) return false;
+      if (searchTerm && !s.ticker.toLowerCase().includes(searchTerm)) return false;
+      return true;
+    });
+    
+    renderCards(filtered);
+  }
+  
+  function renderCards(stocks) {
+    const grid = document.getElementById('grid');
+    if (!stocks.length) {
+      grid.innerHTML = '<div class="loading">📭 No stocks match your filters. Try broader criteria.</div>';
+      return;
+    }
+    
+    grid.innerHTML = stocks.map(s => {
+      const changeClass = s.changePct >= 0 ? 'positive' : 'negative';
+      const arrow = s.changePct >= 0 ? '▲' : '▼';
+      const compressionPercent = Math.round(s.compressionScore * 100);
+      
+      return `
+      <div class="card ${s.lowFloat ? 'low-float' : ''} ${s.compressionScore > 0.7 ? 'high-compression' : ''}" onclick="alert('📌 ${s.ticker}\\n💰 Price: $${s.price}\\n📈 Change: ${s.changePct > 0 ? '+' : ''}${s.changePct}%\\n📐 Compression: ${compressionPercent}%\\n📊 Volume: ${(s.volume/1e6).toFixed(1)}M\\n${s.lowFloat ? '🚀 LOW FLOAT - High explosive potential!' : 'Standard float'}\\n${s.compressionScore > 0.7 ? '🔥 HIGH COMPRESSION - Pennant/Coil detected!' : ''}')">
+        <div style="display: flex; justify-content: space-between;">
+          <div><div class="ticker">${s.ticker}</div><div style="font-size:0.7rem;color:#8ca3c0;">${s.exchange}</div></div>
+          <div style="text-align:right;"><div class="price">$${s.price.toFixed(2)}</div><div class="${changeClass}">${arrow} ${Math.abs(s.changePct).toFixed(2)}%</div></div>
+        </div>
+        <div class="details">
+          <span>📈 ${(s.volume/1e6).toFixed(1)}M vol</span>
+          <span class="badge ${s.lowFloat ? 'low-float-badge' : ''}">${s.lowFloat ? '🚀 LOW FLOAT' : 'Standard'}</span>
+          <span class="badge compression-badge">📐 ${compressionPercent}%</span>
+        </div>
+      </div>
+      `;
+    }).join('');
+  }
+  
+  document.getElementById('minPrice').addEventListener('input', applyFilters);
+  document.getElementById('maxPrice').addEventListener('input', applyFilters);
+  document.getElementById('minVolume').addEventListener('input', applyFilters);
+  document.getElementById('minCompression').addEventListener('change', applyFilters);
+  document.getElementById('search').addEventListener('input', applyFilters);
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    document.getElementById('minPrice').value = '0.5';
+    document.getElementById('maxPrice').value = '30';
+    document.getElementById('minVolume').value = '100000';
+    document.getElementById('minCompression').value = '0';
+    document.getElementById('search').value = '';
+    applyFilters();
+  });
+  
+  loadStocks();
+</script>
+</body>
+</html>
